@@ -904,12 +904,15 @@ public class CDateTime extends BaseCombo {
 	 * @param value
 	 *            the value to set it to
 	 * @param style
-	 *            the of set to perform; if the value is valid for the given
-	 *            calendarField then this has no affect, otherwise it will take
+	 *            the style of set to perform; if the value is valid for the given
+	 *            calendarField then this has no effect, otherwise it will take
 	 *            an action according to this style int:
 	 *            <ul>
-	 *            <li>DISCARD: the value will be discarded and the method
-	 *            returns without performing and action</li>
+	 *            <li>DISCARD: an invalid value will be discarded and the method
+	 *            returns without performing any action. However, there is a special
+	 *            handling for day-of-month values to support typing dates starting
+	 *            with these: If the given day-of-month is valid for the following month,
+	 *            the month field is incremented and the value accepted.</li>
 	 *            <li>WRAP: if value is higher than its maximum it will be set
 	 *            to its minimum, and visa versa</li>
 	 *            <li>BLOCK: if value is higher than its maximum it will be set
@@ -923,33 +926,45 @@ public class CDateTime extends BaseCombo {
 			return false;
 		}
 		if (calendarField >= 0) {
+			long backup = calendar.getTimeInMillis();
+			boolean rollback = false;
+			
 			if (value > calendar.getActualMaximum(calendarField)) {
 				if (style == DISCARD) {
-					return false;
+					if (calendarField == Calendar.DAY_OF_MONTH) {
+						// try incrementing the month to allow typing any
+						// date starting with day of month even if the
+						// current month has less than 31 days
+						calendar.add(Calendar.MONTH, 1);
+						if (value > calendar.getActualMaximum(calendarField)) {
+							rollback = true;
+						} else {
+							calendar.set(calendarField, value);
+						}
+					} else {
+						return false;
+					}
 				} else if (style == WRAP) {
-					value = calendar.getActualMinimum(calendarField);
+					calendar.set(calendarField, calendar.getActualMinimum(calendarField));
 				} else if (style == BLOCK) {
-					value = calendar.getActualMaximum(calendarField);
+					calendar.set(calendarField, calendar.getActualMaximum(calendarField));
 				}
 			} else if (value < calendar.getActualMinimum(calendarField)) {
 				if (style == DISCARD) {
 					return false;
 				} else if (style == WRAP) {
-					value = calendar.getActualMaximum(calendarField);
+					calendar.set(calendarField, calendar.getActualMaximum(calendarField));
 				} else if (style == BLOCK) {
-					value = calendar.getActualMinimum(calendarField);
+					calendar.set(calendarField, calendar.getActualMinimum(calendarField));
 				}
+			} else {
+				calendar.set(calendarField, value);
 			}
 
-			Calendar tmp = (Calendar) calendar.clone();
-			tmp.set(calendarField, value);
-			tmp.getTime(); // call to set the Fields in the Calendar
-
-			if (!DatePicker.isValidDate(tmp, getMinDate(), getMaxDate())) {
+			if (rollback || !DatePicker.isValidDate(calendar, getMinDate(), getMaxDate())) {
+				calendar.setTimeInMillis(backup);
 				return false;
 			}
-
-			calendar.set(calendarField, value);
 			if (selection.length > 0) {
 				selection[0] = calendar.getTime();
 			}
